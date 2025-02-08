@@ -48,15 +48,15 @@ public class Main {
                     variables.add(variable);
                 }else if(m2.find()){ // find out expression
                     String expression = m2.group(1);
-                    //Are all variables of different data types?
-                    if(areAllDiff(variables)){
-                        throw new RuntimeException("Data types of all variables are not same");
+                    //Are all variables have mixed data types?
+                    if(hasMixedTypes(variables)){
+                        throw new RuntimeException("Variables have mixed data types");
                     }
                     computeExpression(variables,expression);
                 }
             }
         } catch (IOException e) {
-            System.out.println("Unknown Error");
+            System.out.println("Error reading file: " + e.getMessage());
         }
     }
 
@@ -64,14 +64,14 @@ public class Main {
     // T && F = F : all int
     // F && T = F : all double
     // T && T = T : mixed types
-    private static boolean areAllDiff(List<Variable> variables){
+    private static boolean hasMixedTypes(List<Variable> variables){
         boolean hasInt = false;
         boolean hasDouble = false;
 
         for (Variable v : variables) {
-            if (v.type.equals("int")) {
+            if ("int".equals(v.type)) {
                 hasInt = true;
-            } else if (v.type.equals("double")) {
+            } else if ("double".equals(v.type)) {
                 hasDouble = true;
             }
 
@@ -86,6 +86,10 @@ public class Main {
         Stack<Double> values = new Stack<>();
         Stack<Character> operators = new Stack<>();
 
+        if(variables.isEmpty()){
+            throw new RuntimeException("ERROR! variables is empty!");
+        }
+
         // expression -> values and operators
         transformExpression(variables,expression,values,operators);
 
@@ -95,86 +99,59 @@ public class Main {
         }
 
         // print result by int or double type
-        if(variables.get(1).type.equals("int")) {
+        if (variables.getFirst().type.equals("int")) {
             System.out.println("Result = " + values.pop().intValue());
-        }else {
+        } else {
             System.out.println("Result = " + values.pop());
         }
+
 
 
     }
 
     //transform string Expression to two stack which able to apply
     private static void transformExpression(List<Variable> variables,String expression,Stack<Double> values,Stack<Character> operators){
-        for (int i = 0; i < expression.length(); i++) {
-            char ch = expression.charAt(i);
+        String regex = "(\\w+|\\d+(\\.\\d*)?|[+\\-*/])";
+        Pattern pattern = Pattern.compile(regex);
+        Matcher matcher = pattern.matcher(expression);
 
-            // Skip whitespace
-            if (Character.isWhitespace(ch)) {
-                continue;
+        while (matcher.find()) {
+            String token = matcher.group();
+            if (Character.isDigit(token.charAt(0)) || token.charAt(0) == '.') {
+                // parse number
+                values.push(Double.parseDouble(token));
+            } else if (isOperator(token.charAt(0))) {
+                // parse operator
+                parseOperator(operators, values, token.charAt(0));
+            } else {
+                // parse variable
+                parseVariable(variables, values, token);
             }
-
-            //get variable like x and y
-            if(Character.isLetter(ch)){
-                i = paresVariable(variables,expression,values,i);
-                continue;
-            }
-
-            //get number
-            if (Character.isDigit(ch) || ch == '.') {
-                i = parseNumber(values, expression, i);
-                continue;
-            }
-
-            //get operators
-            if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
-                parseOperator(operators, values, expression, i);
-            }
-
         }
     }
 
-    // get variable from expression and store it in stack value
-    // return i as index in String expression
-    private static int paresVariable(List<Variable> variables,String expression,Stack<Double> values,int i){
-        StringBuilder variableName = new StringBuilder();
-        // Collect the full variable name
-        while (i < expression.length() && (Character.isLetterOrDigit(expression.charAt(i)) || expression.charAt(i) == '_')) {
-            variableName.append(expression.charAt(i));
-            i++;
-        }
-        String value = variableName.toString();
+    private static boolean isOperator(char ch) {
+        return ch == '+' || ch == '-' || ch == '*' || ch == '/';
+    }
 
+    // get variable from expression and store it in stack value
+    private static void parseVariable(List<Variable> variables, Stack<Double> values, String variableName) {
         boolean found = false;
-        // make sure the variable has been declared
-        for(Variable v: variables){
-            if(value.equals(v.name)){
+        for (Variable v : variables) {
+            if (variableName.equals(v.name)) {
                 values.push(v.value);
                 found = true;
                 break;
             }
         }
-        if(!found){
-            throw new RuntimeException("Unknown variable: " + value);
+        if (!found) {
+            throw new RuntimeException("Unknown variable: " + variableName);
         }
-        return i-1;// go back one step, because the for loop increments it
     }
 
-    //get number from expression
-    private static int parseNumber(Stack<Double> values, String expression, int i) {
-        StringBuilder number = new StringBuilder();
-        // Collect the full number
-        while (i < expression.length() && (Character.isDigit(expression.charAt(i)) || expression.charAt(i) == '.')) {
-            number.append(expression.charAt(i));
-            i++;
-        }
-        values.push(Double.parseDouble(number.toString()));
-        return i - 1; // go back one step, because the for loop increments it
-    }
-
-    // get operator from expression
-    private static void parseOperator(Stack<Character> operators, Stack<Double> values, String expression, int i) {
-        char ch = expression.charAt(i);
+    // get operator from expression and store it in stack operators
+    // and note that operator has precedence
+    private static void parseOperator(Stack<Character> operators, Stack<Double> values, char ch) {
         // Check that the priority of the top-of-stack operator
         // is higher than the priority of the current operator.
         while (!operators.isEmpty() && hasPrecedence(operators.peek(), ch)) {
@@ -188,7 +165,7 @@ public class Main {
         return (op1 == '*' || op1 == '/') && (op2 == '+' || op2 == '-');
     }
 
-    // operation in variable as data type int
+    // apply operation with value
     private static double applyOperator(char op, double b, double a) {
         return switch (op) {
             case '+' -> a + b;
