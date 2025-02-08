@@ -11,6 +11,18 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 
+class Variable {
+    String type;
+    String name;
+    Double value;
+
+    public Variable(String type, String name, double value) {
+        this.type = type;
+        this.name = name;
+        this.value = value;
+    }
+}
+
 public class Main {
     public static void main(String[] args) {
         File file = new File("src/main/resources/text");
@@ -21,7 +33,6 @@ public class Main {
     public static void readFile(File file){
         try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
             String line;
-
             //2. find out variables and expression : using regex
             String regex1 = "^(int|double)\\s+(\\w+)\\s*=\\s*(\\d+);";
             String regex2 ="print\\(([^)]+)\\);";
@@ -29,8 +40,6 @@ public class Main {
             Pattern p2 = Pattern.compile(regex2);
 
             List<Variable> variables = new ArrayList<>();
-
-
             while ((line = reader.readLine()) != null) {
                 Matcher m1 = p1.matcher(line);
                 Matcher m2 = p2.matcher(line);
@@ -39,34 +48,36 @@ public class Main {
                     variables.add(variable);
                 }else if(m2.find()){ // find out expression
                     String expression = m2.group(1);
-                    //before to compute expression, it needs check data type first
-                    if(!(checkDataType(variables)== 1 ||checkDataType(variables)== 2)){
-                        throw new RuntimeException("Data type of variables are not same");
+                    //Are all variables of different data types?
+                    if(areAllDiff(variables)){
+                        throw new RuntimeException("Data types of all variables are not same");
                     }
                     computeExpression(variables,expression);
                 }
-
             }
-
-
         } catch (IOException e) {
             System.out.println("Unknown Error");
         }
     }
+
     //check data type
-    // 1 : both int
-    // 2 : both double
-    // decimals number: there are different
-    private static double checkDataType(List<Variable> variables){
-        double status = 0;
-        for(Variable v: variables){
-            if(v.type.equals("int")){
-                status += 1;
-            }else if (v.type.equals("double")){
-                status += 2;
+    // T && F = F : all int
+    // F && T = F : all double
+    // T && T = T : mixed types
+    private static boolean areAllDiff(List<Variable> variables){
+        boolean hasInt = false;
+        boolean hasDouble = false;
+
+        for (Variable v : variables) {
+            if (v.type.equals("int")) {
+                hasInt = true;
+            } else if (v.type.equals("double")) {
+                hasDouble = true;
             }
+
         }
-        return status / variables.size();
+
+        return hasInt && hasDouble;
     }
 
     //3. compute expression
@@ -75,45 +86,15 @@ public class Main {
         Stack<Double> values = new Stack<>();
         Stack<Character> operators = new Stack<>();
 
-        for (int i = 0; i < expression.length(); i++) {
-            char ch = expression.charAt(i);
-
-            //get variable like x and y
-            if(Character.isLetter(ch)){
-                StringBuilder variableName = new StringBuilder();
-                // Collect the full variable name
-                while (i < expression.length() && (Character.isLetterOrDigit(expression.charAt(i)) || expression.charAt(i) == '_')) {
-                    variableName.append(expression.charAt(i));
-                    i++;
-                }
-                i--; // go back one step, because operator will be skipped
-                String value = variableName.toString();
-
-                boolean found = false;
-                // make sure the variable has been declared
-                for(Variable v: variables){
-                    if(value.equals(v.name)){
-                        values.push(v.value);
-                        found = true;
-                        break;
-                    }
-                }
-                if(!found){
-                    throw new RuntimeException("Unknown variable: " + value);
-                }
-            }
-
-            //get operators
-            if (ch == '+' || ch == '-' || ch == '*' || ch == '/'){
-                operators.push(ch);
-            }
-
-        }
+        // expression -> values and operators
+        transformExpression(variables,expression,values,operators);
 
         // compute expression
         while (!operators.isEmpty()) {
             values.push(applyOperator(operators.pop(), values.pop(), values.pop()));
         }
+
+        // print result by int or double type
         if(variables.get(1).type.equals("int")) {
             System.out.println("Result = " + values.pop().intValue());
         }else {
@@ -121,9 +102,91 @@ public class Main {
         }
 
 
-
     }
 
+    //transform string Expression to two stack which able to apply
+    private static void transformExpression(List<Variable> variables,String expression,Stack<Double> values,Stack<Character> operators){
+        for (int i = 0; i < expression.length(); i++) {
+            char ch = expression.charAt(i);
+
+            // Skip whitespace
+            if (Character.isWhitespace(ch)) {
+                continue;
+            }
+
+            //get variable like x and y
+            if(Character.isLetter(ch)){
+                i = paresVariable(variables,expression,values,i);
+                continue;
+            }
+
+            //get number
+            if (Character.isDigit(ch) || ch == '.') {
+                i = parseNumber(values, expression, i);
+                continue;
+            }
+
+            //get operators
+            if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
+                parseOperator(operators, values, expression, i);
+            }
+
+        }
+    }
+
+    // get variable from expression and store it in stack value
+    // return i as index in String expression
+    private static int paresVariable(List<Variable> variables,String expression,Stack<Double> values,int i){
+        StringBuilder variableName = new StringBuilder();
+        // Collect the full variable name
+        while (i < expression.length() && (Character.isLetterOrDigit(expression.charAt(i)) || expression.charAt(i) == '_')) {
+            variableName.append(expression.charAt(i));
+            i++;
+        }
+        String value = variableName.toString();
+
+        boolean found = false;
+        // make sure the variable has been declared
+        for(Variable v: variables){
+            if(value.equals(v.name)){
+                values.push(v.value);
+                found = true;
+                break;
+            }
+        }
+        if(!found){
+            throw new RuntimeException("Unknown variable: " + value);
+        }
+        return i-1;// go back one step, because the for loop increments it
+    }
+
+    //get number from expression
+    private static int parseNumber(Stack<Double> values, String expression, int i) {
+        StringBuilder number = new StringBuilder();
+        // Collect the full number
+        while (i < expression.length() && (Character.isDigit(expression.charAt(i)) || expression.charAt(i) == '.')) {
+            number.append(expression.charAt(i));
+            i++;
+        }
+        values.push(Double.parseDouble(number.toString()));
+        return i - 1; // go back one step, because the for loop increments it
+    }
+
+    // get operator from expression
+    private static void parseOperator(Stack<Character> operators, Stack<Double> values, String expression, int i) {
+        char ch = expression.charAt(i);
+        // Check that the priority of the top-of-stack operator
+        // is higher than the priority of the current operator.
+        while (!operators.isEmpty() && hasPrecedence(operators.peek(), ch)) {
+            values.push(applyOperator(operators.pop(), values.pop(), values.pop()));
+        }
+        operators.push(ch);
+    }
+
+    // Check operator precedence
+    private static boolean hasPrecedence(char op1, char op2) {
+        return (op1 == '*' || op1 == '/') && (op2 == '+' || op2 == '-');
+    }
 
     // operation in variable as data type int
     private static double applyOperator(char op, double b, double a) {
@@ -139,17 +202,5 @@ public class Main {
         };
     }
 
-}
-
-class Variable {
-    String type;
-    String name;
-    Double value;
-
-    public Variable(String type, String name, double value) {
-        this.type = type;
-        this.name = name;
-        this.value = value;
-    }
 }
 
